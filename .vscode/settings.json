@@ -1,5 +1,7 @@
 {
     "python.analysis.extraPaths": [
-        "./schnapsen/src"
+        "./schnapsen/src",
+        "./schnapsen/src/schnapsen/bots",
+        "./models"
     ]
 }

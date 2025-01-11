@@ -4,3 +4,5 @@ __pycache__/
 *.pth
 venv/
 schnapsen/
+ML_replay_memories/
+ML_models/
