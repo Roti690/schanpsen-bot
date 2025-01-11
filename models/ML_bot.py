@@ -7,6 +7,7 @@ import joblib
 import time
 import pathlib
 import random
+from multiprocessing import Pool
 
 
 class MLPlayingBot(Bot):
@@ -429,50 +430,68 @@ def get_state_feature_vector(perspective: PlayerPerspective) -> list[int]:
 
     return state_feature_list
 
-def create_replay_memory_dataset(bot1: Bot, bot2: Bot) -> None:
-    """Create offline dataset for training a ML bot.
+
+def create_replay_memory_dataset(
+    bot1: Bot,
+    bot2: Bot,
+    num_of_games: int = 10000,
+    replay_memory_dir: str = "ML_replay_memories",
+    replay_memory_filename: str = "replay_memory.txt",
+    parallel: bool = True,
+    overwrite: bool = False,
+) -> None:
+    """
+    Create an enhanced replay memory dataset for training.
 
     Args:
-        bot1, bot2: the bot of your choice.
-
+        bot1, bot2: The bots to simulate games.
+        num_of_games: Total games to simulate.
+        replay_memory_dir: Directory to store the dataset.
+        replay_memory_filename: Name of the dataset file.
+        parallel: Whether to use parallel processing.
     """
-    # define replay memory database creation parameters
-    num_of_games: int = 10000
-    replay_memory_dir: str = "ML_replay_memories"
-    replay_memory_filename: str = "random_random_10k_games.txt"
+
+
+    # Prepare the replay memory location
     replay_memory_location = pathlib.Path(replay_memory_dir) / replay_memory_filename
-
-    delete_existing_older_dataset = False
-
-    # check if needed to delete any older versions of the dataset
-    if delete_existing_older_dataset and replay_memory_location.exists():
-        print(
-            f"An existing dataset was found at location '{replay_memory_location}', which will be deleted as selected."
-        )
-        replay_memory_location.unlink()
-
-    # in any case make sure the directory exists
     replay_memory_location.parent.mkdir(parents=True, exist_ok=True)
 
-    # create new replay memory dataset, according to the behaviour of the provided bots and the provided random seed
+    if overwrite and replay_memory_location.exists():
+        print(f"Existing dataset found at {replay_memory_location}. Overwriting...")
+        replay_memory_location.unlink()  # Delete the existing file
+
+    else:
+        base_name = replay_memory_location.stem  # Get "replay_memory" from "replay_memory.txt"
+        extension = replay_memory_location.suffix  # Get ".txt" from "replay_memory.txt"
+        counter = 1
+        while replay_memory_location.exists():
+            replay_memory_location = replay_memory_location.parent / f"{base_name}_{counter}{extension}"
+            counter += 1
+    
+    if parallel:
+        # Use multiprocessing for parallel execution
+        with Pool() as pool:
+            pool.starmap(
+                simulate_game,
+                [(game_id, bot1, bot2, replay_memory_location) for game_id in range(1, num_of_games + 1)],
+            )
+    else:
+        # Run sequentially
+        for game_id in range(1, num_of_games + 1):
+            simulate_game(game_id, bot1, bot2, replay_memory_location)
+    
+def simulate_game(game_id, bot1, bot2, replay_memory_location):
+    """Simulate a single game and save its data."""
     engine = SchnapsenGamePlayEngine()
-    replay_memory_recording_bot_1 = MLDataBot(
-        bot1, replay_memory_location=replay_memory_location
+    random_seed = random.Random(game_id)
+    engine.play_game(
+        MLDataBot(bot1, replay_memory_location=replay_memory_location),
+        MLDataBot(bot2, replay_memory_location=replay_memory_location),
+        random_seed,
     )
-    replay_memory_recording_bot_2 = MLDataBot(
-        bot2, replay_memory_location=replay_memory_location
-    )
-    for i in range(1, num_of_games + 1):
-        if i % 500 == 0:
-            print(f"Progress: {i}/{num_of_games}")
-        engine.play_game(
-            replay_memory_recording_bot_1,
-            replay_memory_recording_bot_2,
-            random.Random(i),
-        )
-    print(
-        f"Replay memory dataset recorder for {num_of_games} games.\nDataset is stored at: {replay_memory_location}"
-    )
+    if game_id % 500 == 0:
+        print(f"Game {game_id} completed.")
+
 
 def train_model(model_type: str) -> None:
     """Train model for ML bot.
