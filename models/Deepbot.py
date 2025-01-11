@@ -49,12 +49,13 @@ class DeepLearningBot(Bot):
         """
         state_vector = self.get_state_feature_vector(perspective)
         valid_moves = perspective.valid_moves()
+        leader_vector = self.get_move_feature_vector(leader_move)
         move_vectors = [self.get_move_feature_vector(move) for move in valid_moves]
 
 
         # Combine state and move features for each move
         input_data = [
-            torch.tensor(state_vector + move_vector, dtype=torch.float32).to(self.device)
+            torch.tensor(state_vector+ leader_vector + move_vector, dtype=torch.float32).to(self.device)
             for move_vector in move_vectors
         ]
         input_tensor = torch.stack(input_data)
@@ -69,99 +70,137 @@ class DeepLearningBot(Bot):
 
     def get_state_feature_vector(self, perspective: PlayerPerspective) -> list[int]:
         """
-        Convert the game state into a feature vector.
+            This function gathers all subjective information that this bot has access to, that can be used to decide its next move, including:
+            - points of this player (int)
+            - points of the opponent (int)
+            - pending points of this player (int)
+            - pending points of opponent (int)
+            - the trump suit (1-hot encoding)
+            - phase of game (1-hoy encoding)
+            - talon size (int)
+            - if this player is leader (1-hot encoding)
+            - What is the status of each card of the deck (where it is, or if its location is unknown)
 
-        :param perspective: The player's perspective of the game state.
-        :return: A feature vector representing the game state.
+            Important: This function should not include the move of this agent.
+            It should only include any earlier actions of other agents (so the action of the other agent in case that is the leader)
         """
-        state_feature_list = []
+        # a list of all the features that consist the state feature set, of type np.ndarray
+        state_feature_list: list[int] = []
 
-        # Add points and pending points (4 features)
-        state_feature_list += [
-            perspective.get_my_score().direct_points,
-            perspective.get_my_score().pending_points,
-            perspective.get_opponent_score().direct_points,
-            perspective.get_opponent_score().pending_points,
-        ]
+        player_score = perspective.get_my_score()
+        # - points of this player (int)
+        player_points = player_score.direct_points
+        # - pending points of this player (int)
+        player_pending_points = player_score.pending_points
 
-        # Add trump suit encoding (4 features)
+        # add the features to the feature set
+        state_feature_list += [player_points]
+        state_feature_list += [player_pending_points]
+
+        opponents_score = perspective.get_opponent_score()
+        # - points of the opponent (int)
+        opponents_points = opponents_score.direct_points
+        # - pending points of opponent (int)
+        opponents_pending_points = opponents_score.pending_points
+
+        # add the features to the feature set
+        state_feature_list += [opponents_points]
+        state_feature_list += [opponents_pending_points]
+
+        # - the trump suit (1-hot encoding)
         trump_suit = perspective.get_trump_suit()
-        state_feature_list += self.get_one_hot_encoding_of_card_suit_method(trump_suit)
+        trump_suit_one_hot = get_one_hot_encoding_of_card_suit(trump_suit)
+        # add this features to the feature set
+        state_feature_list += trump_suit_one_hot
 
-        # Add game phase encoding (2 features)
-        game_phase_encoded = [1, 0] if perspective.get_phase() == perspective.get_phase().TWO else [0, 1]
+        # - phase of game (1-hot encoding)
+        game_phase_encoded = [1, 0] if perspective.get_phase() == GamePhase.TWO else [0, 1]
+        # add this features to the feature set
         state_feature_list += game_phase_encoded
 
-        # Add talon size and leader status (2 features)
-        state_feature_list += [
-            perspective.get_talon_size(),
-            int(perspective.am_i_leader())
-        ]
+        # - talon size (int)
+        talon_size = perspective.get_talon_size()
+        # add this features to the feature set
+        state_feature_list += [talon_size]
 
-        # Add deck knowledge (120 features)
+        # - if this player is leader (1-hot encoding)
+        i_am_leader = [0, 1] if perspective.am_i_leader() else [1, 0]
+        # add this features to the feature set
+        state_feature_list += i_am_leader
+
+        # gather all known deck information
         hand_cards = perspective.get_hand().cards
         trump_card = perspective.get_trump_card()
         won_cards = perspective.get_won_cards().get_cards()
         opponent_won_cards = perspective.get_opponent_won_cards().get_cards()
         opponent_known_cards = perspective.get_known_cards_of_opponent_hand().get_cards()
+        # each card can either be i) on player's hand, ii) on player's won cards, iii) on opponent's hand, iv) on opponent's won cards
+        # v) be the trump card or vi) in an unknown position -> either on the talon or on the opponent's hand
+        # There are all different cases regarding card's knowledge, and we represent these 6 cases using one hot encoding vectors as seen bellow.
 
-        deck_knowledge_in_consecutive_one_hot_encodings = []
+        deck_knowledge_in_consecutive_one_hot_encodings: list[int] = []
+
         for card in SchnapsenDeckGenerator().get_initial_deck():
+            card_knowledge_in_one_hot_encoding: list[int]
+            # i) on player's hand
             if card in hand_cards:
-                card_knowledge = [0, 0, 0, 0, 0, 1]
+                card_knowledge_in_one_hot_encoding = [0, 0, 0, 0, 0, 1]
+            # ii) on player's won cards
             elif card in won_cards:
-                card_knowledge = [0, 0, 0, 0, 1, 0]
+                card_knowledge_in_one_hot_encoding = [0, 0, 0, 0, 1, 0]
+            # iii) on opponent's hand
             elif card in opponent_known_cards:
-                card_knowledge = [0, 0, 0, 1, 0, 0]
+                card_knowledge_in_one_hot_encoding = [0, 0, 0, 1, 0, 0]
+            # iv) on opponent's won cards
             elif card in opponent_won_cards:
-                card_knowledge = [0, 0, 1, 0, 0, 0]
+                card_knowledge_in_one_hot_encoding = [0, 0, 1, 0, 0, 0]
+            # v) be the trump card
             elif card == trump_card:
-                card_knowledge = [0, 1, 0, 0, 0, 0]
+                card_knowledge_in_one_hot_encoding = [0, 1, 0, 0, 0, 0]
+            # vi) in an unknown position as it is invisible to this player. Thus, it is either on the talon or on the opponent's hand
             else:
-                card_knowledge = [1, 0, 0, 0, 0, 0]
-            deck_knowledge_in_consecutive_one_hot_encodings += card_knowledge
+                card_knowledge_in_one_hot_encoding = [1, 0, 0, 0, 0, 0]
+            # This list eventually develops to one long 1-dimensional numpy array of shape (120,)
+            deck_knowledge_in_consecutive_one_hot_encodings += card_knowledge_in_one_hot_encoding
+        # deck_knowledge_flattened: np.ndarray = np.concatenate(tuple(deck_knowledge_in_one_hot_encoding), axis=0)
 
+        # add this features to the feature set
         state_feature_list += deck_knowledge_in_consecutive_one_hot_encodings
-
-        # Add leader's move (20 features)
-        if perspective.am_i_leader():
-            leader_move = Trick.leader_move()
-            state_feature_list += self.get_move_feature_vector(leader_move)
-        else:
-            state_feature_list += [0] * 20  # Placeholder for no leader move
-
-        # Add follower's move (20 features)
-        if not perspective.am_i_leader():
-            follower_move = round_trick.follower_move
-            state_feature_list += self.get_move_feature_vector(follower_move)
-        else:
-            state_feature_list += [0] * 20  # Placeholder for no follower move
 
         return state_feature_list
 
     def get_move_feature_vector(self, move: Optional[Move]) -> list[int]:
         """
-        Convert a move into a feature vector.
-
-        :param move: The move to convert.
-        :return: A feature vector representing the move.
+            In case there isn't any move provided move to encode, we still need to create a "padding"-"meaningless" vector of the same size,
+            filled with 0s, since the ML models need to receive input of the same dimensionality always.
+            Otherwise, we create all the information of the move i) move type, ii) played card rank and iii) played card suit
+            translate this information into one-hot vectors respectively, and concatenate these vectors into one move feature representation vector
         """
+
         if move is None:
-            return [0] * 20  # Placeholder for no move
+            move_type_one_hot_encoding_numpy_array = [0, 0, 0]
+            card_rank_one_hot_encoding_numpy_array = [0, 0, 0, 0]
+            card_suit_one_hot_encoding_numpy_array = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        move_vector = []
-        if move.is_marriage():
-            move_vector += [1, 0, 0]
-        elif move.is_trump_exchange():
-            move_vector += [0, 1, 0]
         else:
-            move_vector += [0, 0, 1]
+            move_type_one_hot_encoding: list[int]
+            # in case the move is a marriage move
+            if move.is_marriage():
+                move_type_one_hot_encoding = [0, 0, 1]
+                card = move.queen_card
+            #  in case the move is a trump exchange move
+            elif move.is_trump_exchange():
+                move_type_one_hot_encoding = [0, 1, 0]
+                card = move.jack
+            #  in case it is a regular move
+            else:
+                move_type_one_hot_encoding = [1, 0, 0]
+                card = move.card
+            move_type_one_hot_encoding_numpy_array = move_type_one_hot_encoding
+            card_rank_one_hot_encoding_numpy_array = get_one_hot_encoding_of_card_rank(card.rank)
+            card_suit_one_hot_encoding_numpy_array = get_one_hot_encoding_of_card_suit(card.suit)
 
-        card = move.card if not move.is_marriage() else move.queen_card
-        move_vector += self.get_one_hot_encoding_of_rank(card.rank)
-        move_vector += self.get_one_hot_encoding_of_suit(card.suit)
-
-        return move_vector
+        return move_type_one_hot_encoding_numpy_array + card_rank_one_hot_encoding_numpy_array + card_suit_one_hot_encoding_numpy_array
     
 
     def get_one_hot_encoding_of_card_suit_method(self, card_suit: Suit) -> list[int]:
