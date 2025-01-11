@@ -132,7 +132,7 @@ class DeepLearningBot(Bot):
 
         # Add follower's move (20 features)
         if not perspective.am_i_leader():
-            follower_move = Trick.follower_move()
+            follower_move = round_trick.follower_move
             state_feature_list += self.get_move_feature_vector(follower_move)
         else:
             state_feature_list += [0] * 20  # Placeholder for no follower move
@@ -349,4 +349,3 @@ def train_DL_model(data_path, model_path, input_size, hidden_size, epochs=50, ba
 
 
     print(f"Model saved to {model_path}")
-
