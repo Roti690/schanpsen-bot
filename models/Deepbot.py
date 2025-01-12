@@ -6,6 +6,8 @@ from schnapsen.deck import Suit, Rank
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
+import os
+from datetime import datetime
 
 
 class DeepLearningBot(Bot):
@@ -384,6 +386,10 @@ def train_DL_model(data_path, model_path, input_size, hidden_size, epochs=50, ba
 
     # Save the trained model
     # Save the model
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_filename = f"model_{timestamp}_epochs{epochs}_batch{batch_size}_lr{lr}.pt"
+    model_path = os.path.join(model_path, model_filename)
+
     torch.save(model.model.state_dict(), model_path)  # Save only the Sequential model
 
 
