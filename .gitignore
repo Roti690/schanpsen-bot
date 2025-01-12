@@ -7,3 +7,4 @@ schnapsen/
 ML_replay_memories/
 ML_models/
 *.pt
+CFRmodels/

@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from schnapsen.game import Bot, PlayerPerspective, Move, GamePhase, SchnapsenDeckGenerator, RegularTrick, PartialTrick, Trick
+from schnapsen.game import Bot, PlayerPerspective, Move, GamePhase, SchnapsenDeckGenerator
 from typing import Optional
 from schnapsen.deck import Suit, Rank
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, Dataset
+from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 import os
 from datetime import datetime
@@ -482,20 +482,6 @@ class ChunkDataset(Dataset):
         labels = torch.tensor(labels, dtype=torch.float32)
         return features, labels
     
-def pad_tensor(tensor, target_size):
-    """
-    Pad a tensor to the target size.
-    Args:
-        tensor (torch.Tensor): Input tensor to pad.
-        target_size (int): Target size for the first dimension.
-    Returns:
-        torch.Tensor: Padded tensor.
-    """
-    current_size = tensor.size(0)
-    if current_size < target_size:
-        padding = (0, 0, 0, target_size - current_size)  # Padding for last dimension
-        tensor = F.pad(tensor, padding, "constant", 0)  # Pad with zeros
-    return tensor
 
 def variable_collate_fn(batch):
     """
