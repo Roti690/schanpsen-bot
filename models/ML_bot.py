@@ -460,13 +460,6 @@ def create_replay_memory_dataset(
         print(f"Existing dataset found at {replay_memory_location}. Overwriting...")
         replay_memory_location.unlink()  # Delete the existing file
 
-    else:
-        base_name = replay_memory_location.stem  # Get "replay_memory" from "replay_memory.txt"
-        extension = replay_memory_location.suffix  # Get ".txt" from "replay_memory.txt"
-        counter = 1
-        while replay_memory_location.exists():
-            replay_memory_location = replay_memory_location.parent / f"{base_name}_{counter}{extension}"
-            counter += 1
     
     if parallel:
         # Use multiprocessing for parallel execution

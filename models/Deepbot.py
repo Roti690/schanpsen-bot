@@ -339,58 +339,49 @@ def load_data(file_path):
 
 # Training script
 def train_DL_model(data_path, model_path, input_size, hidden_size, epochs=50, batch_size=32, lr=0.001):
-    # Load data
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Training on: {device}")
+
+    # Load data and move to GPU
     features, labels = load_data(data_path)
-
-    # Split into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
-
-    # Reshape labels to match output dimensions
-    y_train = y_train.view(-1, 1)
-    y_val = y_val.view(-1, 1)
+    features, labels = features.to(device), labels.to(device)
 
     # Create DataLoaders
+    from sklearn.model_selection import train_test_split
+    X_train, X_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
     train_dataset = TensorDataset(X_train, y_train)
     val_dataset = TensorDataset(X_val, y_val)
-
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Initialize the model, loss function, and optimizer
-    model = SchnapsenNet(input_size=input_size, hidden_size=hidden_size)
-    criterion = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    # Initialize model, loss, and optimizer
+    model = SchnapsenNet(input_size=input_size, hidden_size=hidden_size).to(device)
+    criterion = torch.nn.BCELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Training loop
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
         for batch_features, batch_labels in train_loader:
+            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
             optimizer.zero_grad()
-            outputs = model(batch_features).view(-1, 1)  # Ensure output shape [batch_size, 1]
-            loss = criterion(outputs, batch_labels)  # Ensure labels match [batch_size, 1]
+            outputs = model(batch_features).view(-1, 1)
+            loss = criterion(outputs, batch_labels)
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
 
-        # Validation phase
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for batch_features, batch_labels in val_loader:
-                outputs = model(batch_features).view(-1, 1)  # Ensure output shape [batch_size, 1]
-                loss = criterion(outputs, batch_labels)  # Ensure labels match [batch_size, 1]
-                val_loss += loss.item()
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss / len(train_loader):.4f}")
 
-        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {train_loss / len(train_loader):.4f}, Validation Loss: {val_loss / len(val_loader):.4f}")
-
-    # Save the trained model
-    # Save the model
+    # Save model
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_filename = f"model_{timestamp}_epochs{epochs}_batch{batch_size}_lr{lr}.pt"
     model_path = os.path.join(model_path, model_filename)
-
-    torch.save(model.model.state_dict(), model_path)  # Save only the Sequential model
-
-
+    torch.save(model.state_dict(), model_path)
     print(f"Model saved to {model_path}")
+
+def gpu_check():
+    print(torch.cuda.is_available())  # Should return True
+    print(torch.cuda.device_count())  # Number of GPUs available
+    print(torch.cuda.get_device_name(0))
