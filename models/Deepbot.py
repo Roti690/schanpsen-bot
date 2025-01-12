@@ -4,10 +4,12 @@ from schnapsen.game import Bot, PlayerPerspective, Move, GamePhase, SchnapsenDec
 from typing import Optional
 from schnapsen.deck import Suit, Rank
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from sklearn.model_selection import train_test_split
 import os
 from datetime import datetime
+import torch.nn.functional as F
+
 
 
 class DeepLearningBot(Bot):
@@ -22,7 +24,19 @@ class DeepLearningBot(Bot):
         super().__init__(name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self._build_model(input_size, hidden_size).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+
+        # Load the state_dict
+        state_dict = torch.load(model_path, map_location=self.device)
+
+        # Remove the 'model.' prefix from the keys
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            new_key = k.replace("model.", "")  # Remove the 'model.' prefix
+            new_state_dict[new_key] = v
+
+        # Load the adjusted state_dict
+        self.model.load_state_dict(new_state_dict)
         self.model.eval()
 
     def _build_model(self, input_size: int, hidden_size: int):
@@ -337,22 +351,17 @@ def load_data(file_path):
             labels.append(float(label_str))
     return torch.tensor(features, dtype=torch.float32), torch.tensor(labels, dtype=torch.float32)
 
-# Training script
 def train_DL_model(data_path, model_path, input_size, hidden_size, epochs=50, batch_size=32, lr=0.001):
+
+    # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
 
-    # Load data and move to GPU
-    features, labels = load_data(data_path)
-    features, labels = features.to(device), labels.to(device)
+    # Load data in chunks
+    chunk_size = 10000  # Number of games per chunk
+    dataset = ChunkDataset(data_path, chunk_size=chunk_size)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=variable_collate_fn)
 
-    # Create DataLoaders
-    from sklearn.model_selection import train_test_split
-    X_train, X_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
-    train_dataset = TensorDataset(X_train, y_train)
-    val_dataset = TensorDataset(X_val, y_val)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model, loss, and optimizer
     model = SchnapsenNet(input_size=input_size, hidden_size=hidden_size).to(device)
@@ -360,28 +369,143 @@ def train_DL_model(data_path, model_path, input_size, hidden_size, epochs=50, ba
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Training loop
+    print("Starting training...")
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
-        for batch_features, batch_labels in train_loader:
-            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(batch_features).view(-1, 1)
-            loss = criterion(outputs, batch_labels)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+
+        for chunk_features, chunk_labels in train_loader:
+            # Iterate through individual tensors in the lists
+            for features, labels in zip(chunk_features, chunk_labels):
+                # Move individual tensors to the GPU
+                features = features.to(device)
+                labels = labels.to(device).view(-1, 1)  # Ensure labels have correct shape
+
+                # Forward pass
+                optimizer.zero_grad()
+                outputs = model(features).view(-1, 1)
+                loss = criterion(outputs, labels)
+
+                # Backward pass and optimization
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
 
         print(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss / len(train_loader):.4f}")
 
+
     # Save model
+    print("Saving model...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_filename = f"model_{timestamp}_epochs{epochs}_batch{batch_size}_lr{lr}.pt"
-    model_path = os.path.join(model_path, model_filename)
-    torch.save(model.state_dict(), model_path)
-    print(f"Model saved to {model_path}")
+    model_save_path = os.path.join(model_path, model_filename)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"Model saved to {model_save_path}")
 
 def gpu_check():
-    print(torch.cuda.is_available())  # Should return True
+    print(torch.cuda.is_available())
     print(torch.cuda.device_count())  # Number of GPUs available
     print(torch.cuda.get_device_name(0))
+
+class ChunkDataset(Dataset):
+    def __init__(self, file_path, chunk_size=10000, split="train", test_size=0.2, random_seed=42):
+        self.file_path = file_path
+        self.chunk_size = chunk_size
+        self.split = split
+        self.offsets = self._calculate_offsets()
+        self.train_offsets, self.val_offsets = self._split_offsets(test_size, random_seed)
+
+    def _calculate_offsets(self):
+        """Precompute file offsets for chunk boundaries."""
+        offsets = []
+        with open(self.file_path, 'r') as f:
+            while True:
+                pos = f.tell()
+                lines = [f.readline() for _ in range(self.chunk_size)]
+                if not lines[0]:  # End of file
+                    break
+                offsets.append(pos)
+        return offsets
+
+    def _split_offsets(self, test_size, random_seed):
+        """Split offsets into train and validation sets."""
+        from sklearn.model_selection import train_test_split
+        train_offsets, val_offsets = train_test_split(
+            self.offsets, test_size=test_size, random_state=random_seed
+        )
+        return train_offsets, val_offsets
+
+    def __len__(self):
+        """Return the number of chunks."""
+        if self.split == "train":
+            return len(self.train_offsets)
+        elif self.split == "val":
+            return len(self.val_offsets)
+
+    def __getitem__(self, idx):
+        """Load and process a chunk."""
+        if self.split == "train":
+            start_pos = self.train_offsets[idx]
+        elif self.split == "val":
+            start_pos = self.val_offsets[idx]
+
+        with open(self.file_path, 'r') as f:
+            f.seek(start_pos)
+            lines = [f.readline().strip() for _ in range(self.chunk_size)]
+        features, labels = self._process_lines(lines)
+        return features, labels
+
+    def _process_lines(self, lines):
+        """Convert lines into features and labels."""
+        features = []
+        labels = []
+        for line in lines:
+            if line.strip():  # Ignore empty lines
+                # Split into features and label using '||' as the delimiter
+                parts = line.split("||")
+                if len(parts) != 2:
+                    raise ValueError(f"Invalid line format: {line}")
+
+                # Parse features
+                feature_part = parts[0].strip()
+                feature_values = [float(x) for x in feature_part.split(",")]
+
+                # Parse label
+                label_part = parts[1].strip()
+                label_value = float(label_part)  # Convert to float (0.0 or 1.0)
+
+                features.append(feature_values)
+                labels.append(label_value)
+
+        # Convert lists to PyTorch tensors
+        features = torch.tensor(features, dtype=torch.float32)
+        labels = torch.tensor(labels, dtype=torch.float32)
+        return features, labels
+    
+def pad_tensor(tensor, target_size):
+    """
+    Pad a tensor to the target size.
+    Args:
+        tensor (torch.Tensor): Input tensor to pad.
+        target_size (int): Target size for the first dimension.
+    Returns:
+        torch.Tensor: Padded tensor.
+    """
+    current_size = tensor.size(0)
+    if current_size < target_size:
+        padding = (0, 0, 0, target_size - current_size)  # Padding for last dimension
+        tensor = F.pad(tensor, padding, "constant", 0)  # Pad with zeros
+    return tensor
+
+def variable_collate_fn(batch):
+    """
+    Custom collate function to handle variable batch sizes.
+    Args:
+        batch: List of tuples (features, labels) where each tuple corresponds to a chunk.
+    Returns:
+        features: List of feature tensors with variable sizes.
+        labels: List of label tensors with variable sizes.
+    """
+    features = [item[0] for item in batch]  # List of feature tensors
+    labels = [item[1] for item in batch]    # List of label tensors
+    return features, labels
