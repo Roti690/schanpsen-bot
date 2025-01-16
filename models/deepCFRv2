@@ -1,0 +1,314 @@
+import random
+from typing import Optional, List, Dict, Any
+import numpy as np
+import math
+from schnapsen.game import Bot, PlayerPerspective, Move, SchnapsenDeckGenerator, GamePhase, SchnapsenGamePlayEngine
+from schnapsen.deck import Suit
+
+class DeepCFRBot(Bot):
+    """
+    A Bot that uses a policy network to choose moves. The policy network is
+    typically updated iteratively by the DeepCFRTrainer.
+    """
+    def __init__(self, policy_network, name: str = "DeepCFRBot", epsilon: float = 0.0):
+        """
+        :param policy_network: A callable or model that returns a distribution over actions for a given state.
+        :param epsilon: If >0, might do epsilon-greedy to ensure exploration.
+        """
+        super().__init__(name=name)
+        self.policy_network = policy_network
+        self.epsilon = epsilon
+        self.rand = random.Random()
+
+    def get_move(self, perspective: PlayerPerspective, leader_move: Optional[Move]) -> Move:
+        """
+        Use the current policy to choose an action. Possibly sample from the
+        policy distribution or do epsilon-greedy.
+        """
+        valid_moves = perspective.valid_moves()
+        
+        # If there's only one valid move, pick it
+        if len(valid_moves) == 1:
+            return valid_moves[0]
+
+        # 1) Construct your state feature vector:
+        state_vec = get_state_feature_vector(perspective)
+        
+        # 2) Get a policy distribution over ALL possible moves, or just the valid moves
+        #    This depends on how you structure your net. Suppose it returns
+        #    a dict {move: probability}, or a list aligned with valid_moves.
+        action_probs_dict = self.policy_network(state_vec, valid_moves)
+
+        # 3) Possibly do some exploration:
+        if self.rand.random() < self.epsilon:
+            # random choice among valid moves
+            return self.rand.choice(valid_moves)
+        else:
+            # sample from the policy distribution
+            # e.g. if action_probs_dict is {move: prob}, do:
+            moves_list = list(action_probs_dict.keys())
+            probs_list = [action_probs_dict[m] for m in moves_list]
+            chosen_move = self.rand.choices(moves_list, weights=probs_list, k=1)[0]
+            return chosen_move
+
+
+
+
+class MonteCarloCFRTrainer:
+    def __init__(
+        self,
+        policy_network_p1,
+        policy_network_p2,
+        regret_network_p1,
+        regret_network_p2,
+        num_iterations: int = 10,
+        episodes_per_iteration: int = 100,
+        name="DeepCFRTrainer"
+    ):
+        """
+        :param policy_network_p1: The current policy net for player 1
+        :param policy_network_p2: The current policy net for player 2
+        :param regret_network_p1: The net that approximates regret for P1
+        :param regret_network_p2: The net that approximates regret for P2
+        """
+        self.policy_networks = [policy_network_p1, policy_network_p2]
+        self.regret_networks = [regret_network_p1, regret_network_p2]
+
+        self.num_iterations = num_iterations
+        self.episodes_per_iteration = episodes_per_iteration
+        self.rand = random.Random()
+        self.name = name
+
+    def train(self):
+        """
+        Main training loop: run for num_iterations, 
+        sampling self-play data, computing regrets, updating policy.
+        """
+        for iteration in range(1, self.num_iterations + 1):
+            print(f"=== Iteration {iteration} / {self.num_iterations} ===")
+
+            # 1) Generate self-play data with the current policy
+            trajectory_data = []
+            for _ in range(self.episodes_per_iteration):
+                game_trajectory = self.run_self_play_game()
+                trajectory_data.append(game_trajectory)
+
+            # 2) From each trajectory, compute regrets for each visited state
+            #    Store them as (player, state, action, regret) 
+            #    in some regret buffer.
+            regrets_buffer = []
+            for game_trajectory in trajectory_data:
+                # game_trajectory might be a list of (player, state_vec, valid_moves, chosen_action, or partial states, etc.)
+                # An external function to compute regrets:
+                new_regret_data = self.compute_regrets_for_trajectory(game_trajectory)
+                regrets_buffer.extend(new_regret_data)
+
+            # 3) Separate regrets for each player 
+            p1_regret_data = [(s, a, r) for (p, s, a, r) in regrets_buffer if p == 0]
+            p2_regret_data = [(s, a, r) for (p, s, a, r) in regrets_buffer if p == 1]
+
+            # 4) Train each player's regret network
+            self.train_regret_network(self.regret_networks[0], p1_regret_data)
+            self.train_regret_network(self.regret_networks[1], p2_regret_data)
+
+            # 5) Update policy networks with "regret matching"
+            #    or some approach that uses the regret network outputs. 
+            self.update_policy_from_regret_network(0)
+            self.update_policy_from_regret_network(1)
+
+            # Possibly also maintain an "average policy" 
+
+
+    def run_self_play_game(self) -> list:
+        """
+        Runs a single self-play game using the current policy for both players.
+        Return a 'trajectory': a list of the states and actions taken.
+        """
+        # 1) Create an engine, deal the cards, etc.
+        engine = self._create_schnapsen_engine()
+        p1_bot = DeepCFRBot(policy_network=self.policy_networks[0], name="P1")
+        p2_bot = DeepCFRBot(policy_network=self.policy_networks[1], name="P2")
+
+        # 2) The engine runs a single game
+        #    We want to record all states & actions as we go
+        #    We'll do that by hooking into a custom 'play_game_with_trajectory'
+        game_trajectory = engine.play_game_with_trajectory(p1_bot, p2_bot, self.rand)
+        return game_trajectory
+
+    def compute_regrets_for_trajectory(self, game_trajectory) -> list:
+        """
+        For each decision node in the game_trajectory, 
+        compute regrets for all possible actions, 
+        possibly using partial expansions or rollouts.
+
+        Return a list of (player, state_vec, action, regret) tuples.
+        """
+        regrets_data = []
+        # Pseudocode:
+        # For each step in the trajectory:
+        #   let that step = (player, state_vec, valid_moves, chosen_move, [maybe other info])
+        #   For each action in valid_moves:
+        #       # do a partial expansion or a forced-play with that action
+        #       cf_value = approximate_cf_value_if_action(player, state_vec, action)
+        #   node_value = approximate_cf_value_if_action(player, state_vec, chosen_move)
+        #   regret(action) = cf_value(action) - node_value
+        #   add (player, state_vec, action, regret(action)) to regrets_data
+        #
+        # Implementation will rely on a method like 
+        # "approximate_cf_value_if_action(...)" that:
+        #   - Clones the game state
+        #   - Forces the given action
+        #   - Rolls forward using the current strategy to the end
+        #   - Returns the final payoff for "player"
+        #
+        # That is expensive, so you might do a depth limit or a quick  rollout.
+        
+        return regrets_data
+
+    def train_regret_network(self, regret_net, regret_data):
+        """
+        Train your regret net (a neural net) on the data: 
+        (state, action, target_regret).
+        """
+        # Typically you'd convert to a tensor dataset, do a standard
+        # MSE regression on (x, a) -> regret. 
+        pass
+
+    def update_policy_from_regret_network(self, player_index: int):
+        """
+        For each possible (state, action), we get predicted regrets from the 
+        regret network. Then we do "regret matching" to produce a distribution 
+        over actions. Then we train or set the policy network to replicate 
+        that distribution.
+        """
+        # Possibly we sample a bunch of states (again) or keep a buffer of states,
+        # query regret_net(s,a) for each action, do:
+        #   new_prob(a) = max(r(s,a), 0) / sum of max(r(s,a'),0)
+        # Then train your policy_net to output new_prob.
+        pass
+
+    def _create_schnapsen_engine(self):
+        engine = SchnapsenGamePlayEngine()
+        return engine
+
+
+
+def get_state_feature_vector(perspective: PlayerPerspective) -> list[int]:
+    """
+        This function gathers all subjective information that this bot has access to, that can be used to decide its next move, including:
+        - points of this player (int)
+        - points of the opponent (int)
+        - pending points of this player (int)
+        - pending points of opponent (int)
+        - the trump suit (1-hot encoding)
+        - phase of game (1-hot encoding)
+        - talon size (int)
+        - if this player is leader (1-hot encoding)
+        - What is the status of each card of the deck (where it is, or if its location is unknown)
+
+        Important: This function should not include the move of this agent.
+        It should only include any earlier actions of other agents (so the action of the other agent in case that is the leader)
+    """
+    # a list of all the features that consist the state feature set, of type np.ndarray
+    state_feature_list: list[int] = []
+
+    player_score = perspective.get_my_score()
+    # - points of this player (int)
+    player_points = round(player_score.direct_points / 66, 1)
+    # - pending points of this player (int)
+    player_pending_points = round(player_score.pending_points / 40, 1)
+
+    # add the features to the feature set
+    state_feature_list += [player_points]
+    state_feature_list += [player_pending_points]
+
+    opponents_score = perspective.get_opponent_score()
+    # - points of the opponent (int)
+    opponents_points = round(opponents_score.direct_points / 66, 1)
+    # - pending points of opponent (int)
+    opponents_pending_points = round(opponents_score.pending_points / 40, 1)
+
+    # add the features to the feature set
+    state_feature_list += [opponents_points]
+    state_feature_list += [opponents_pending_points]
+
+    # - the trump suit (1-hot encoding)
+    trump_suit = perspective.get_trump_suit()
+    trump_suit_one_hot = get_one_hot_encoding_of_card_suit(trump_suit)
+    # add this features to the feature set
+    state_feature_list += trump_suit_one_hot
+
+    # - phase of game (1-hot encoding)
+    game_phase_encoded = [1, 0] if perspective.get_phase() == GamePhase.TWO else [0, 1]
+    # add this features to the feature set
+    state_feature_list += game_phase_encoded
+
+    # - talon size (int)
+    talon_size = perspective.get_talon_size() / 10
+    # add this features to the feature set
+    state_feature_list += [talon_size]
+
+    # - if this player is leader (1-hot encoding)
+    i_am_leader = [0, 1] if perspective.am_i_leader() else [1, 0]
+    # add this features to the feature set
+    state_feature_list += i_am_leader
+
+    # gather all known deck information
+    hand_cards = perspective.get_hand().cards
+    trump_card = perspective.get_trump_card()
+    won_cards = perspective.get_won_cards().get_cards()
+    opponent_won_cards = perspective.get_opponent_won_cards().get_cards()
+    opponent_known_cards = perspective.get_known_cards_of_opponent_hand().get_cards()
+    # each card can either be i) on player's hand, ii) on player's won cards, iii) on opponent's hand, iv) on opponent's won cards
+    # v) be the trump card or vi) in an unknown position -> either on the talon or on the opponent's hand
+    # There are all different cases regarding card's knowledge, and we represent these 6 cases using one hot encoding vectors as seen bellow.
+
+    deck_knowledge_in_consecutive_one_hot_encodings: list[int] = []
+
+    for card in SchnapsenDeckGenerator().get_initial_deck():
+        card_knowledge_in_one_hot_encoding: list[int]
+        # i) on player's hand
+        if card in hand_cards:
+            card_knowledge_in_one_hot_encoding = [0, 0, 0, 0, 0, 1]
+        # ii) on player's won cards
+        elif card in won_cards:
+            card_knowledge_in_one_hot_encoding = [0, 0, 0, 0, 1, 0]
+        # iii) on opponent's hand
+        elif card in opponent_known_cards:
+            card_knowledge_in_one_hot_encoding = [0, 0, 0, 1, 0, 0]
+        # iv) on opponent's won cards
+        elif card in opponent_won_cards:
+            card_knowledge_in_one_hot_encoding = [0, 0, 1, 0, 0, 0]
+        # v) be the trump card
+        elif card == trump_card:
+            card_knowledge_in_one_hot_encoding = [0, 1, 0, 0, 0, 0]
+        # vi) in an unknown position as it is invisible to this player. Thus, it is either on the talon or on the opponent's hand
+        else:
+            card_knowledge_in_one_hot_encoding = [1, 0, 0, 0, 0, 0]
+        # This list eventually develops to one long 1-dimensional numpy array of shape (120,)
+        deck_knowledge_in_consecutive_one_hot_encodings += card_knowledge_in_one_hot_encoding
+    # deck_knowledge_flattened: np.ndarray = np.concatenate(tuple(deck_knowledge_in_one_hot_encoding), axis=0)
+
+    # add this features to the feature set
+    state_feature_list += deck_knowledge_in_consecutive_one_hot_encodings
+
+    return state_feature_list
+
+
+def get_one_hot_encoding_of_card_suit(card_suit: Suit) -> list[int]:
+    """
+    Translating the suit of a card into one hot vector encoding of size 4.
+    """
+    card_suit_one_hot: list[int]
+    if card_suit == Suit.HEARTS:
+        card_suit_one_hot = [0, 0, 0, 1]
+    elif card_suit == Suit.CLUBS:
+        card_suit_one_hot = [0, 0, 1, 0]
+    elif card_suit == Suit.SPADES:
+        card_suit_one_hot = [0, 1, 0, 0]
+    elif card_suit == Suit.DIAMONDS:
+        card_suit_one_hot = [1, 0, 0, 0]
+    else:
+        raise ValueError("Suit of card was not found!")
+
+    return card_suit_one_hot
