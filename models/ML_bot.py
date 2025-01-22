@@ -166,7 +166,7 @@ def train_ML_model(replay_memory_location: Optional[pathlib.Path],
         for line in replay_memory_file:
             feature_string, won_label_str = line.split("||")
             feature_list_strings: list[str] = feature_string.split(",")
-            feature_list = [int(feature) for feature in feature_list_strings]
+            feature_list = [float(feature) for feature in feature_list_strings]
             won_label = int(won_label_str)
             data.append(feature_list)
             targets.append(won_label)
@@ -191,9 +191,9 @@ def train_ML_model(replay_memory_location: Optional[pathlib.Path],
         # needs a bigger dataset, but if you find the correct combination of neurons and neural layers and provide a big enough training dataset can lead to better performance
 
         # one layer of 30 neurons
-        hidden_layer_sizes = (30)
+        #hidden_layer_sizes = (30)
         # two layers of 30 and 5 neurons respectively
-        # hidden_layer_sizes = (30, 5)
+        hidden_layer_sizes = (30, 5)
 
         # The learning rate determines how fast we move towards the optimal solution.
         # A low learning rate will converge slowly, but a large one might overshoot.
@@ -494,7 +494,7 @@ def train_model(model_type: str) -> None:
 
     """
     # directory where the replay memory is saved
-    replay_memory_filename: str = "random_random_10k_games.txt"
+    replay_memory_filename: str = "replay_memory.txt"
     # filename of replay memory within that directory
     replay_memories_directory: str = "ML_replay_memories"
     # Whether to train a complicated Neural Network model or a simple one.
