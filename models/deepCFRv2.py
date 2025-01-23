@@ -334,31 +334,15 @@ def get_one_hot_encoding_of_card_rank(card_rank: Rank) -> list[int]:
     """
     card_rank_one_hot: list[int]
     if card_rank == Rank.ACE:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-    elif card_rank == Rank.TWO:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
-    elif card_rank == Rank.THREE:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
-    elif card_rank == Rank.FOUR:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
-    elif card_rank == Rank.FIVE:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
-    elif card_rank == Rank.SIX:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
-    elif card_rank == Rank.SEVEN:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
-    elif card_rank == Rank.EIGHT:
-        card_rank_one_hot = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
-    elif card_rank == Rank.NINE:
-        card_rank_one_hot = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_rank_one_hot = [0, 0, 0, 0, 1]
     elif card_rank == Rank.TEN:
-        card_rank_one_hot = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_rank_one_hot = [0, 0, 0, 1, 0]
     elif card_rank == Rank.JACK:
-        card_rank_one_hot = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_rank_one_hot = [0, 0, 1, 0, 0]
     elif card_rank == Rank.QUEEN:
-        card_rank_one_hot = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_rank_one_hot = [0, 1, 0, 0, 0]
     elif card_rank == Rank.KING:
-        card_rank_one_hot = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_rank_one_hot = [1, 0, 0, 0, 0]
     else:
         raise AssertionError("Provided card Rank does not exist!")
     return card_rank_one_hot
@@ -375,7 +359,7 @@ def get_move_feature_vector(move: Optional[Move]) -> list[int]:
     if move is None:
         move_type_one_hot_encoding_numpy_array = [0, 0, 0]
         card_rank_one_hot_encoding_numpy_array = [0, 0, 0, 0]
-        card_suit_one_hot_encoding_numpy_array = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        card_suit_one_hot_encoding_numpy_array = [0, 0, 0, 0, 0]
 
     else:
         move_type_one_hot_encoding: list[int]
