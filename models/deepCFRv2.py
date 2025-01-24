@@ -245,7 +245,7 @@ class DeepCFRTrainer:
         # 7. Recursively compute child utilities
         node_utility = {}
         for i, a in enumerate(actions):
-            next_state = self._apply_action(game_state, a, perspective, leader_move)
+            next_state = self._apply_action(game_state, a, perspective)
             # who acts next
             # for Schnapsen, usually the winner of the trick is next leader, so adapt as needed.
             next_active_player = 0 if (next_state.leader is game_state.leader) else 1
@@ -287,34 +287,68 @@ class DeepCFRTrainer:
 
         return total_node_util
 
-    def _apply_action(self, old_state: GameState, action: Move, perspective: PlayerPerspective, leader_move: Move) -> GameState:
+    def _apply_action(engine, old_state: GameState, 
+                  action: Move, perspective: PlayerPerspective) -> GameState:
         """
-        Return a new GameState after applying 'action' from the current perspective.
-        If it's the leader's perspective and the action is a trump exchange or a normal move, 
-        we create a 'partial' state or do the exchange. If it's the follower's perspective, 
-        we combine their move with the existing leader_move to finalize the trick.
+        A method to apply 'action' to 'old_state' and return the resulting new state.
+
+        This version uses Approach 2: If the leader plays a marriage or a regular move,
+        it stores a PartialTrick in `old_state.previous` rather than finalizing the trick
+        immediately. The follower later detects this PartialTrick and finalizes the trick.
         """
+        # 1) Make a new state so we do not mutate old_state directly
+        next_state = old_state.copy_for_next()
+        
         if perspective.am_i_leader():
+            # LEADER's move
             if action.is_trump_exchange():
-                return apply_trump_exchange(self.engine, old_state, cast(TrumpExchange, action))
+                # Apply the exchange immediately (fully resolves in one step).
+                return apply_trump_exchange(engine=engine,
+                                            old_state=old_state,
+                                            exchange=cast(TrumpExchange, action))
             elif action.is_marriage() or action.is_regular_move():
-                next_state = old_state.copy_for_next()
-                # Store the leader's move in the *next_state* as a custom attribute:
-                next_state.leader_move = action
+                # Instead of completing the trick, store a PartialTrick in next_state.previous
+                partial = PartialTrick(leader_move=action)
+                next_state.previous = Previous(
+                    state=old_state,
+                    trick=partial,
+                    leader_remained_leader=True  
+                    # Typically the same leader continues for now, 
+                    # because the trick is not complete yet.
+                )
                 return next_state
             else:
-                raise ValueError("Unknown leader action type")
-        else:
-            # perspective is Follower => we assume next_state has .leader_move_chosen
-            # but we are calling `_apply_action(old_state, ...)`
-            # So we look at 'old_state.leader_move_chosen'
-            if not hasattr(old_state, "leader_move_chosen"):
-                raise ValueError("Cannot apply a follower move without a stored leader_move!")
-            stored_leader_move = old_state.leader_move  # retrieve it
+                raise ValueError("Unrecognized leader action type.")
 
-            follower_move = cast(RegularMove, action)  # must be a regular move
-            # Now apply both leader & follower moves at once
-            return apply_leader_follower_moves(self.engine, old_state, stored_leader_move, follower_move)
+        else:
+            # FOLLOWER's move
+            # We need to see if there's a pending partial trick from the previous step
+            old_previous = old_state.previous
+            if old_previous is None:
+                raise ValueError("Follower cannot act but no 'previous' is set!")
+
+            # Was the previous trick a partial?
+            partial_trick = old_previous.trick
+            if isinstance(partial_trick, PartialTrick):
+                # We do have a stored leader move. Let's finalize the trick.
+                leader_move = partial_trick.leader_move
+                # Follower must play a regular move to complete it
+                if not action.is_regular_move():
+                    raise ValueError("Follower must respond with a regular move, but got something else.")
+                follower_move = cast(RegularMove, action)
+
+                # Now finalize the trick using leader + follower moves
+                return apply_leader_follower_moves(
+                    engine=engine,
+                    old_state=old_state,
+                    leader_move=leader_move,
+                    follower_move=follower_move
+                )
+            else:
+                # If the previous trick was not partial, there's no "pending" leader move.
+                # Possibly the trick was ExchangeTrick or a fully completed RegularTrick.
+                # If the follower tries to do something else here, handle that logic or raise an error.
+                raise ValueError("Follower tried to play, but no partial trick to complete.")
 
 
     def _train_regret_network(self, batch_size: int):
@@ -623,3 +657,4 @@ def apply_leader_follower_moves(engine: SchnapsenGamePlayEngine,
     )
 
     return next_state
+
