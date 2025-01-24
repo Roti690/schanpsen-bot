@@ -297,7 +297,8 @@ class DeepCFRTrainer:
         immediately. The follower later detects this PartialTrick and finalizes the trick.
         """
         # 1) Make a new state so we do not mutate old_state directly
-        next_state = old_state.copy_for_next()
+        next_state = old_state
+        print (perspective.valid_moves())
         
         if perspective.am_i_leader():
             # LEADER's move
@@ -336,7 +337,6 @@ class DeepCFRTrainer:
                 if not action.is_regular_move():
                     raise ValueError("Follower must respond with a regular move, but got something else.")
                 follower_move = cast(RegularMove, action)
-                print(f"Perspective says am_i_leader() = {perspective.am_i_leader()}")
                 # Now finalize the trick using leader + follower moves
                 return apply_leader_follower_moves(
                     engine=self.engine,
