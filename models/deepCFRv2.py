@@ -1,4 +1,6 @@
-from schnapsen.game import (Move, PlayerPerspective, Bot, GamePlayEngine, BotState, GameState, SchnapsenDeckGenerator, GamePhase)
+from schnapsen.game import (Move, PlayerPerspective, Bot, GamePlayEngine, BotState, GameState, SchnapsenDeckGenerator, GamePhase,
+                            LeaderPerspective, FollowerPerspective, RegularMove, RegularTrick, Marriage, SchnapsenGamePlayEngine,
+                            TrumpExchange, ExchangeTrick, Previous, PartialTrick, Trick)
 from schnapsen.deck import Suit, Rank
 import random
 from typing import Optional
@@ -6,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from collections import deque
+from typing import Union, cast
 
 ######### PlayingBot #########
 
@@ -135,7 +138,7 @@ class DeepCFRTrainer:
         # For demonstration, let's just return a placeholder number.
         # Adjust to your actual features' length.
         # E.g. If each card is encoded as 6 bits, times 20 cards, plus some extras, etc.
-        return 150  # example
+        return 145  # example
 
     def train(self, 
               deals_per_iteration: int = 1,
@@ -173,8 +176,8 @@ class DeepCFRTrainer:
         shuffled = self.engine.deck_generator.shuffle_deck(deck, self.rng)
         hand1, hand2, talon = self.engine.hand_generator.generateHands(shuffled)
 
-        leader_state = BotState(implementation=None, hand=hand1)
-        follower_state = BotState(implementation=None, hand=hand2)
+        leader_state = BotState(implementation=_DummyBot(), hand=hand1)
+        follower_state = BotState(implementation=_DummyBot(), hand=hand2)
 
         return GameState(
             leader=leader_state,
@@ -202,26 +205,19 @@ class DeepCFRTrainer:
         maybe_winner = self.trick_scorer.declare_winner(game_state)
         if maybe_winner is not None:
             (winner, _) = maybe_winner
-            # Return 1 if active_player is the winner, else 0
-            if (winner is game_state.leader and active_player == 0) or \
-               (winner is game_state.follower and active_player == 1):
-                return 1.0
-            else:
-                return 0.0
+            # compute payoff ...
+            return 1.0 if ((winner is game_state.leader and active_player == 0) or
+                        (winner is game_state.follower and active_player == 1)) else 0.0
 
-        # 2. Build perspective. This depends on whether active_player == 0 or 1
+        # 2) Build perspective purely by seat:
         if active_player == 0:
-            perspective = self.engine.get_leader_perspective(game_state)
-            if not perspective.am_i_leader():
-                # If it's not actually the leader, build a FollowerPerspective
-                perspective = self.engine.get_follower_perspective(game_state, leader_move)
+            # "Seat 0" is the leader seat
+            perspective = LeaderPerspective(game_state, self.engine)
             my_p = p0
             other_p = p1
         else:
-            perspective = self.engine.get_follower_perspective(game_state, leader_move)
-            if perspective.am_i_leader():
-                # If it's actually the leader, do that instead
-                perspective = self.engine.get_leader_perspective(game_state)
+            # "Seat 1" is the follower seat
+            perspective = FollowerPerspective(game_state, self.engine, leader_move)
             my_p = p1
             other_p = p0
 
@@ -251,7 +247,7 @@ class DeepCFRTrainer:
         # 7. Recursively compute child utilities
         node_utility = {}
         for i, a in enumerate(actions):
-            next_state = self._apply_action(game_state, a, perspective)
+            next_state = self._apply_action(game_state, a, perspective, leader_move)
             # who acts next
             # for Schnapsen, usually the winner of the trick is next leader, so adapt as needed.
             next_active_player = 0 if (next_state.leader is game_state.leader) else 1
@@ -293,20 +289,35 @@ class DeepCFRTrainer:
 
         return total_node_util
 
-    def _apply_action(self, game_state, action, perspective):
+    def _apply_action(self, old_state: GameState, action: Move, perspective: PlayerPerspective, leader_move: Move) -> GameState:
         """
-        Create next state by applying the given action.
-        This is typically done by calling an engine method that resolves a trick, etc.
-        For example, if your engine has a method:
-          next_state = engine.apply_move(game_state, action, perspective)
-        just call that. 
+        Return a new GameState after applying 'action' from the current perspective.
+        If it's the leader's perspective and the action is a trump exchange or a normal move, 
+        we create a 'partial' state or do the exchange. If it's the follower's perspective, 
+        we combine their move with the existing leader_move to finalize the trick.
         """
-        next_state = self.engine.trick_implementer.play_trick_with_fixed_leader_move(
-            game_engine=self.engine,
-            game_state=game_state,
-            leader_move=action
-        )
-        return next_state
+        if perspective.am_i_leader():
+            if action.is_trump_exchange():
+                return apply_trump_exchange(self.engine, old_state, cast(TrumpExchange, action))
+            elif action.is_marriage() or action.is_regular_move():
+                next_state = old_state.copy_for_next()
+                # Store the leader's move in the *next_state* as a custom attribute:
+                next_state.leader_move_chosen = action
+                return next_state
+            else:
+                raise ValueError("Unknown leader action type")
+        else:
+            # perspective is Follower => we assume next_state has .leader_move_chosen
+            # but we are calling `_apply_action(old_state, ...)`
+            # So we look at 'old_state.leader_move_chosen'
+            if not hasattr(old_state, "leader_move_chosen"):
+                raise ValueError("Cannot apply a follower move without a stored leader_move!")
+            stored_leader_move = old_state.leader_move_chosen  # retrieve it
+
+            follower_move = cast(RegularMove, action)  # must be a regular move
+            # Now apply both leader & follower moves at once
+            return apply_leader_follower_moves(self.engine, old_state, stored_leader_move, follower_move)
+
 
     def _train_regret_network(self, batch_size: int):
         states, regrets = self.replay_buffer.sample(batch_size)
@@ -405,18 +416,20 @@ def get_move_feature_vector(move: Optional[Move]) -> list[int]:
 def get_state_feature_vector(perspective: PlayerPerspective, leader_move: Move = None) -> list[int]:
     """
         This function gathers all subjective information that this bot has access to, that can be used to decide its next move, including:
-        - points of this player (int)
-        - points of the opponent (int)
-        - pending points of this player (int)
-        - pending points of opponent (int)
+        - points of this player (normalized int)
+        - points of the opponent (normalized int)
+        - pending points of this player (normalized int)
+        - pending points of opponent (normalized int)
         - the trump suit (1-hot encoding)
         - phase of game (1-hot encoding)
-        - talon size (int)
+        - talon size (normalized int)
         - if this player is leader (1-hot encoding)
-        - What is the status of each card of the deck (where it is, or if its location is unknown)
+        - What is the status of each card of the deck (where it is, or if its location is unknown) (1-hot encoding)
+        - leader move if it is given (1-hot encoding)
 
-        Important: This function should not include the move of this agent.
         It should only include any earlier actions of other agents (so the action of the other agent in case that is the leader)
+
+        Returns 145 feature vectors
     """
     # a list of all the features that consist the state feature set, of type np.ndarray
     state_feature_list: list[int] = []
@@ -506,3 +519,109 @@ def get_state_feature_vector(perspective: PlayerPerspective, leader_move: Move =
     state_feature_list += leader_move_vector
 
     return state_feature_list
+
+
+#########  Dummy ##########
+
+class _DummyBot(Bot):
+    """A no-op Bot used only to fill in BotState. We do not call get_move."""
+    def get_move(self, perspective: PlayerPerspective, leader_move: Optional[Move]) -> Move:
+        raise NotImplementedError
+    
+
+######### CFR Trickimplementer ###########
+
+
+def apply_trump_exchange(engine: SchnapsenGamePlayEngine,
+                         old_state: GameState,
+                         trump_exchange: TrumpExchange) -> GameState:
+    """
+    Apply a trump-exchange Move in a copy of 'old_state', returning a new state.
+    Mimics the logic from SchnapsenTrickImplementer for an exchange.
+    """
+    assert trump_exchange.jack.rank == Rank.JACK, \
+        "Trump exchange must use a Jack"
+
+    next_state = old_state.copy_for_next()  # Copies everything, sets previous=None
+
+    # Remove the Jack from the leader's hand
+    next_state.leader.hand.remove(trump_exchange.jack)
+    # Exchange with the card at the bottom of the talon
+    old_trump_card = next_state.talon.trump_exchange(trump_exchange.jack)
+    # Add the old trump to the leader's hand
+    next_state.leader.hand.add(old_trump_card)
+
+    # Build an ExchangeTrick for the 'previous' pointer, if you want game history
+    exchange_trick = ExchangeTrick(exchange=trump_exchange, trump_card=old_trump_card)
+    next_state.previous = Previous(
+        state=old_state,
+        trick=exchange_trick,
+        leader_remained_leader=True  # After an exchange, the same leader continues
+    )
+
+    return next_state
+
+
+def apply_leader_follower_moves(engine: SchnapsenGamePlayEngine,
+                                old_state: GameState,
+                                leader_move: Union[RegularMove, Marriage],
+                                follower_move: RegularMove) -> GameState:
+    """
+    Apply the (leader_move, follower_move) in a copy of 'old_state' and return the new state,
+    similar to _apply_regular_trick from SchnapsenTrickImplementer.
+    """
+    # 1) Copy
+    next_state = old_state.copy_for_next()
+
+    # 2) If the leader_move is a Marriage, handle marriage scoring & removing queen+king
+    if leader_move.is_marriage():
+        marriage_move: Marriage = cast(Marriage, leader_move)
+        # Score the marriage (adds pending points, etc.)
+        marriage_score = engine.trick_scorer.marriage(marriage_move, next_state)
+        next_state.leader.score += marriage_score
+        # We remove the King card from the leader's hand, because it's played in the marriage
+        # But the actual "card" for the "leader move" is the King. The queen is only to declare.
+        # If you follow the code in SchnapsenTrickImplementer, it does:
+        #    next_state.leader.hand.remove(king_card)
+        # but the code also removes the queen card from the leader's hand if it wants, depending on your engine.
+        # Typically, only the King is "played" in the trick, but you might want to remove the Queen too if your rules do so.
+        # We'll remove both to be safe:
+        next_state.leader.hand.remove(marriage_move.queen_card)
+        next_state.leader.hand.remove(marriage_move.king_card)
+
+        leader_card = marriage_move.king_card  # The actual "played" card
+    else:
+        # It's a regular move
+        regular_leader_move: RegularMove = cast(RegularMove, leader_move)
+        leader_card = regular_leader_move.card
+        next_state.leader.hand.remove(leader_card)
+
+    # 3) Remove the follower's card
+    next_state.follower.hand.remove(follower_move.card)
+
+    # 4) Score the trick (who wins, how many points, etc.)
+    # This returns (winnerBotState, loserBotState, leaderRemainsLeader)
+    # The trick is effectively "RegularTrick(leader_move, follower_move)"
+    trick = RegularTrick(leader_move=leader_move, follower_move=follower_move)
+    new_leader, new_follower, leader_stays = engine.trick_scorer.score(
+        trick, next_state.leader, next_state.follower, next_state.trump_suit
+    )
+
+    # 5) The new leader draws first from the talon, then the new follower
+    if not next_state.talon.is_empty():
+        drawn = next_state.talon.draw_cards(2)
+        new_leader.hand.add(drawn[0])
+        new_follower.hand.add(drawn[1])
+
+    # 6) Reassign them to next_state.leader/follower in correct order
+    next_state.leader = new_leader
+    next_state.follower = new_follower
+
+    # 7) Build a 'RegularTrick' for next_state.previous if you want game history:
+    next_state.previous = Previous(
+        state=old_state,
+        trick=trick,
+        leader_remained_leader=leader_stays
+    )
+
+    return next_state
