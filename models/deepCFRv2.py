@@ -287,7 +287,7 @@ class DeepCFRTrainer:
 
         return total_node_util
 
-    def _apply_action(engine, old_state: GameState, 
+    def _apply_action(self, old_state: GameState, 
                   action: Move, perspective: PlayerPerspective) -> GameState:
         """
         A method to apply 'action' to 'old_state' and return the resulting new state.
@@ -303,7 +303,7 @@ class DeepCFRTrainer:
             # LEADER's move
             if action.is_trump_exchange():
                 # Apply the exchange immediately (fully resolves in one step).
-                return apply_trump_exchange(engine=engine,
+                return apply_trump_exchange(engine=self.engine,
                                             old_state=old_state,
                                             exchange=cast(TrumpExchange, action))
             elif action.is_marriage() or action.is_regular_move():
@@ -336,10 +336,10 @@ class DeepCFRTrainer:
                 if not action.is_regular_move():
                     raise ValueError("Follower must respond with a regular move, but got something else.")
                 follower_move = cast(RegularMove, action)
-
+                print(f"Perspective says am_i_leader() = {perspective.am_i_leader()}")
                 # Now finalize the trick using leader + follower moves
                 return apply_leader_follower_moves(
-                    engine=engine,
+                    engine=self.engine,
                     old_state=old_state,
                     leader_move=leader_move,
                     follower_move=follower_move
@@ -626,6 +626,10 @@ def apply_leader_follower_moves(engine: SchnapsenGamePlayEngine,
         # It's a regular move
         regular_leader_move: RegularMove = cast(RegularMove, leader_move)
         leader_card = regular_leader_move.card
+        print(f"--- Attempting removal ---")
+        print(f"next_state.leader.hand = {next_state.leader.hand.cards}")
+        print(f"next_state.follower.hand = {next_state.follower.hand.cards}")
+        print(f"Removing {leader_card} from next_state.leader.hand\n")
         next_state.leader.hand.remove(leader_card)
 
     # 3) Remove the follower's card
