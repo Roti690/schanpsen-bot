@@ -135,10 +135,8 @@ class DeepCFRTrainer:
         know from your code that get_state_feature_vector always returns
         e.g. 120 + 15, etc., just hardcode that here.
         """
-        # For demonstration, let's just return a placeholder number.
-        # Adjust to your actual features' length.
-        # E.g. If each card is encoded as 6 bits, times 20 cards, plus some extras, etc.
-        return 145  # example
+        
+        return 145 
 
     def train(self, 
               deals_per_iteration: int = 1,
