@@ -302,7 +302,7 @@ class DeepCFRTrainer:
             elif action.is_marriage() or action.is_regular_move():
                 next_state = old_state.copy_for_next()
                 # Store the leader's move in the *next_state* as a custom attribute:
-                next_state.leader_move_chosen = action
+                next_state.leader_move = action
                 return next_state
             else:
                 raise ValueError("Unknown leader action type")
@@ -312,7 +312,7 @@ class DeepCFRTrainer:
             # So we look at 'old_state.leader_move_chosen'
             if not hasattr(old_state, "leader_move_chosen"):
                 raise ValueError("Cannot apply a follower move without a stored leader_move!")
-            stored_leader_move = old_state.leader_move_chosen  # retrieve it
+            stored_leader_move = old_state.leader_move  # retrieve it
 
             follower_move = cast(RegularMove, action)  # must be a regular move
             # Now apply both leader & follower moves at once
