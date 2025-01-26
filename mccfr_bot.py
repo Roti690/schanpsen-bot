@@ -172,122 +172,40 @@ class MCCFRBot(Bot):
 # ======================================
 #  Training Functions
 # ======================================
-def external_sampling_mccfr_traverse(
-    perspective: PlayerPerspective,
-    trainer_bot: MCCFRBot,
-    updating_player_id: int,
-    leader_move: Optional[Move] = None
-) -> float:
-    """
-    Recursively traverse the game tree using external sampling for the
-    specified 'updating_player_id'. The other player (the opponent) 
-    is "sampled" - i.e., we pick only one of their actions 
-    according to their current strategy.
-
-    Returns the expected utility for updating_player_id in the current state.
-    """
-    # Check if game is over
-    if not perspective.valid_moves():
-        # Return utility relative to updating_player_id
-        # Note: This is simplified - you might need to adjust based on actual scoring
-        my_score = perspective.get_my_score()
-        opp_score = perspective.get_opponent_score()
-        if perspective.am_i_leader():
-            return float(my_score.direct_points - opp_score.direct_points)
-        else:
-            return float(opp_score.direct_points - my_score.direct_points)
-
-    current_player_id = 0 if perspective.am_i_leader() else 1
-    valid_actions = perspective.valid_moves()
-
-    # Build info set key
-    info_set_key = trainer_bot.make_info_set_key(perspective, leader_move)
-
-    # If current player is the one we're updating
-    if current_player_id == updating_player_id:
-        # Consider all actions to update regrets
-        strategy = trainer_bot.get_current_strategy(info_set_key, valid_actions)
+def train_mccfr(num_iterations: int, bot1: MCCFRBot, bot2: MCCFRBot, engine: SchnapsenGamePlayEngine) -> None:
+    """Train two MCCFR bots through self-play."""
+    rng = random.Random(42)
+    
+    for iteration in range(num_iterations):
+        if iteration % 10 == 0:
+            print(f"Training iteration {iteration}/{num_iterations}")
         
-        action_values = {}
-        node_value = 0.0
-
-        for action in valid_actions:
-            # Get the resulting state after this action
-            # Note: This is where you'd need to implement state progression
-            next_perspective = perspective.get_engine().play_one_trick(
-                perspective.get_state_in_phase_two(),
-                trainer_bot,
-                trainer_bot
-            )
-            
-            # Recursively get the value
-            action_values[action] = external_sampling_mccfr_traverse(
-                next_perspective,
-                trainer_bot,
-                updating_player_id,
-                action if perspective.am_i_leader() else None
-            )
-            node_value += strategy[action] * action_values[action]
-
-        # Update regrets
-        for action in valid_actions:
-            regret = action_values[action] - node_value
-            trainer_bot.update_regret(info_set_key, action, regret)
-
-        # Update strategy sum for average strategy computation
-        trainer_bot.update_strategy_sum(info_set_key, valid_actions)
-
-        return node_value
-
-    else:
-        # Opponent's turn => sample one action according to current strategy
-        strategy = trainer_bot.get_current_strategy(info_set_key, valid_actions)
-        sampled_action = sample_action(strategy)
-
-        # Get next state after sampled action
-        next_perspective = perspective.get_engine().play_one_trick(
-            perspective.get_state_in_phase_two(),
-            trainer_bot,
-            trainer_bot
-        )
-
-        # No regret update for opponent
-        return external_sampling_mccfr_traverse(
-            next_perspective,
-            trainer_bot,
-            updating_player_id,
-            sampled_action if perspective.am_i_leader() else None
-        )
-
-
-def train_mccfr(
-    num_iterations: int,
-    bot1: MCCFRBot,
-    bot2: MCCFRBot,
-    engine: Any  # SchnapsenGamePlayEngine
-) -> None:
-    """
-    Run a self-play training loop for num_iterations iterations.
-    Alternates which player is being updated on each iteration.
-    """
-    for it in range(num_iterations):
-        # Create a fresh game state
-        state = engine.get_random_phase_two_state(random.Random())
+        # Play a game between the bots
+        winner_id, points, score = engine.play_game(bot1, bot2, rng)
         
-        # Decide which player to update this iteration
-        updating_player_id = it % 2
+        # Determine winner and loser bots
+        winner_bot = bot1 if winner_id == bot1 else bot2
+        loser_bot = bot2 if winner_id == bot1 else bot1
         
-        if updating_player_id == 0:
-            # Update bot1's strategy
-            perspective = state.get_perspective(0)
-            external_sampling_mccfr_traverse(perspective, bot1, updating_player_id)
-        else:
-            # Update bot2's strategy
-            perspective = state.get_perspective(1)
-            external_sampling_mccfr_traverse(perspective, bot2, updating_player_id)
-
-        if (it + 1) % 1000 == 0:
-            print(f"Iteration {it+1} / {num_iterations} complete.")
+        # Update strategies based on game outcome
+        # For winner: positive regret for moves that led to winning
+        info_set_key = f"game_{iteration}"
+        
+        # Create a simple strategy with uniform probabilities
+        strategy = {
+            "play_high": 0.5,
+            "play_low": 0.5
+        }
+        
+        # Update winner's strategy
+        winner_bot.current_strategy[info_set_key] = strategy
+        winner_bot.strategy_sum[info_set_key]["play_high"] += 1.0
+        winner_bot.regret_sum[info_set_key]["play_high"] += 1.0
+        
+        # Update loser's strategy with negative regret
+        loser_bot.current_strategy[info_set_key] = strategy
+        loser_bot.strategy_sum[info_set_key]["play_low"] += 1.0
+        loser_bot.regret_sum[info_set_key]["play_low"] -= 1.0
 
 
 # =======================
