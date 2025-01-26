@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from schnapsen.game import Bot, Move, PlayerPerspective, Card, Suit, Rank, Marriage, TrumpExchange, RegularMove, GamePhase, Score
 from schnapsen.deck import OrderedCardCollection, CardCollection
 
+import sys
+from schnapsen.game import SchnapsenGamePlayEngine
+
 # ======================================
 #  Utility function: sample an action 
 # ======================================
@@ -291,8 +294,6 @@ def train_mccfr(
 # Example Usage (CLI)
 # =======================
 if __name__ == "__main__":
-    import sys
-    from schnapsen.game import SchnapsenGamePlayEngine
 
     # Parse arguments
     args = sys.argv[1:]

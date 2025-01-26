@@ -4,8 +4,11 @@ from collections import defaultdict
 from typing import Dict, Any, Tuple, Optional, List, Union
 from dataclasses import dataclass
 
-from ..game import Bot, Move, PlayerPerspective, Card, Suit, Rank, Marriage, TrumpExchange, RegularMove, GamePhase, Score
-from ..deck import OrderedCardCollection, CardCollection
+from schnapsen.game import Bot, Move, PlayerPerspective, Card, Suit, Rank, Marriage, TrumpExchange, RegularMove, GamePhase, Score
+from schnapsen.deck import OrderedCardCollection, CardCollection
+
+import sys
+from schnapsen.game import SchnapsenGamePlayEngine
 
 # ======================================
 #  Utility function: sample an action 
@@ -291,9 +294,6 @@ def train_mccfr(
 # Example Usage (CLI)
 # =======================
 if __name__ == "__main__":
-    import sys
-    from ..game import SchnapsenGamePlayEngine
-
     # Parse arguments
     args = sys.argv[1:]
     if len(args) < 1:
