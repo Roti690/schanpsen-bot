@@ -9,3 +9,4 @@ ML_models/
 *.pt
 CFRmodels/
 MCTS_replay_memories/
+*.pkl
