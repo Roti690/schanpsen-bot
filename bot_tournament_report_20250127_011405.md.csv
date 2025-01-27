@@ -1,0 +1,125 @@
+bot1_type,bot1_params,bot2_type,bot2_params,win_rate,avg_points_bot1,avg_points_bot2,avg_game_length
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",0.32,0.44,1.0,0.14
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",0.32,0.5,1.1,0.16
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",MCCFRBot,"{'training_iterations': 1000, 'model_path': 'models/mccfr_bot_1000.pkl'}",0.92,1.92,0.08,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",MCCFRBot,"{'training_iterations': 5000, 'model_path': 'models/mccfr_bot_5000.pkl'}",0.86,1.92,0.14,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.88,1.84,0.12,0.18
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.9,2.0,0.12,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",RdeepBot,"{'num_samples': 8, 'depth': 4}",0.54,0.76,0.66,0.14
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d4_s16.csv'), 'num_samples': 16, 'depth': 4}",RandBot,{},0.84,1.96,0.22,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",0.38,0.62,0.96,0.14
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",MCCFRBot,"{'training_iterations': 1000, 'model_path': 'models/mccfr_bot_1000.pkl'}",0.94,2.0,0.06,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",MCCFRBot,"{'training_iterations': 5000, 'model_path': 'models/mccfr_bot_5000.pkl'}",0.92,1.96,0.1,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.94,1.92,0.08,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.94,2.04,0.08,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",RdeepBot,"{'num_samples': 8, 'depth': 4}",0.64,1.02,0.6,0.16
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d8_s32.csv'), 'num_samples': 32, 'depth': 8}",RandBot,{},0.96,2.04,0.1,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",MCCFRBot,"{'training_iterations': 1000, 'model_path': 'models/mccfr_bot_1000.pkl'}",0.86,1.8,0.14,0.18
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",MCCFRBot,"{'training_iterations': 5000, 'model_path': 'models/mccfr_bot_5000.pkl'}",0.9,1.92,0.1,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=64, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=64, out_features=32, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=32, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.96,2.06,0.04,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",DeepCFRBot,"{'regret_net': RegretNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+  )
+), 'strategy_net': StrategyNetwork(
+  (fc): Sequential(
+    (0): Linear(in_features=173, out_features=128, bias=True)
+    (1): ReLU()
+    (2): Linear(in_features=128, out_features=64, bias=True)
+    (3): ReLU()
+    (4): Linear(in_features=64, out_features=20, bias=True)
+    (5): Softmax(dim=-1)
+  )
+)}",0.96,2.0,0.04,0.2
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",RdeepBot,"{'num_samples': 8, 'depth': 4}",0.52,0.82,0.8,0.16
+MCTSbot,"{'replay_memory_file_path': PosixPath('ML_replay_memories/mcts_d12_s32.csv'), 'num_samples': 32, 'depth': 12}",RandBot,{},0.8,1.74,0.24,0.18
+MCCFRBot,"{'training_iterations': 1000, 'model_path': 'models/mccfr_bot_1000.pkl'}",MCCFRBot,"{'training_iterations': 5000, 'model_path': 'models/mccfr_bot_5000.pkl'}",0.56,0.9,0.64,0.14

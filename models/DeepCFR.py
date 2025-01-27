@@ -10,14 +10,14 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 class RegretNetwork(nn.Module):
-    def __init__(self, input_size, action_size):
+    def __init__(self, input_size, action_size, hidden_size=128):
         super(RegretNetwork, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(hidden_size, hidden_size//2),
             nn.ReLU(),
-            nn.Linear(64, action_size)
+            nn.Linear(hidden_size//2, action_size)
         )
 
     def forward(self, x):
@@ -25,14 +25,14 @@ class RegretNetwork(nn.Module):
 
 
 class StrategyNetwork(nn.Module):
-    def __init__(self, input_size, action_size):
+    def __init__(self, input_size, action_size, hidden_size=128):
         super(StrategyNetwork, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(hidden_size, hidden_size//2),
             nn.ReLU(),
-            nn.Linear(64, action_size),
+            nn.Linear(hidden_size//2, action_size),
             nn.Softmax(dim=-1)
         )
 
@@ -109,40 +109,58 @@ class DeepCFRBot(Bot):
     def __str__(self):
         return self.name
 
-    def get_move(self, perspective: PlayerPerspective, leader_move: Optional[Move]) -> Move:
+    def get_move(self, perspective: PlayerPerspective, leader_move: Optional[Move] = None) -> Move:
         """
         Decide the best move using the trained model.
-
-        :param perspective: The player's perspective of the game state.
-        :param leader_move: The move made by the leader, if any.
-        :return: The selected Move.
         """
-        # Get the state vector
-        state_vector = get_state_feature_vector(perspective)
-
         # Get all valid moves
         valid_moves = perspective.valid_moves()
-
-        # Get leader's move vector
-        leader_vector = get_move_feature_vector(leader_move)
-
-        # Get move feature vectors for each valid move
-        move_vectors = [get_move_feature_vector(move) for move in valid_moves]
-
-        # Combine state and move features for each move
-        input_data = [
-            torch.tensor(state_vector + leader_vector + move_vector, dtype=torch.float32).to(self.device)
-            for move_vector in move_vectors
-        ]
-        input_tensor = torch.stack(input_data)
-
-        # Predict probabilities
-        with torch.no_grad():
-            probabilities = self.strategy_net(input_tensor).squeeze().cpu().numpy()
-
-        # Select the move with the highest probability
-        best_move_index = probabilities.argmax()
-        return valid_moves[best_move_index]
+        if not valid_moves:
+            raise ValueError("No valid moves available")
+        
+        try:
+            # Get the state vector
+            state_vector = get_state_feature_vector(perspective)
+            
+            # Get leader's move vector
+            leader_vector = get_move_feature_vector(leader_move)
+            
+            # Get move feature vectors for each valid move
+            move_vectors = [get_move_feature_vector(move) for move in valid_moves]
+            
+            # Combine state and move features for each move
+            input_data = [
+                torch.tensor(state_vector + leader_vector + move_vector, dtype=torch.float32).to(self.device)
+                for move_vector in move_vectors
+            ]
+            input_tensor = torch.stack(input_data)
+            
+            # Predict probabilities
+            with torch.no_grad():
+                probabilities = self.strategy_net(input_tensor).squeeze().cpu().numpy()
+                
+                # Ensure probabilities is 1D and same length as valid_moves
+                if len(probabilities.shape) > 1:
+                    probabilities = probabilities.mean(axis=0)
+                if len(probabilities) != len(valid_moves):
+                    probabilities = probabilities[:len(valid_moves)]
+                
+                # Ensure valid probability distribution
+                probabilities = np.maximum(probabilities, 0)  # Ensure non-negative
+                probabilities_sum = probabilities.sum()
+                if probabilities_sum > 0:
+                    probabilities = probabilities / probabilities_sum
+                else:
+                    probabilities = np.ones_like(probabilities) / len(probabilities)
+            
+            # Select move with highest probability
+            best_move_index = probabilities.argmax()
+            return valid_moves[best_move_index]
+            
+        except Exception as e:
+            print(f"Error in DeepCFRBot get_move: {str(e)}")
+            # Fallback to random move if there's any error
+            return random.choice(valid_moves)
 
 
 
